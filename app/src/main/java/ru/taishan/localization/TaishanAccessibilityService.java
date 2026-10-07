@@ -21,7 +21,7 @@ public class TaishanAccessibilityService extends AccessibilityService {
   private final Runnable poll=new Runnable(){
     @Override public void run(){
       refreshNow();
-      handler.postDelayed(this,2000);
+      handler.postDelayed(this,700);
     }
   };
 
@@ -33,9 +33,13 @@ public class TaishanAccessibilityService extends AccessibilityService {
   }
 
   @Override public void onAccessibilityEvent(AccessibilityEvent e){
-    if(e!=null && e.getPackageName()!=null && CAR_PKG.contentEquals(e.getPackageName())){
-      handler.removeCallbacks(refreshOnce);
-      handler.postDelayed(refreshOnce,180);
+    if(e==null || e.getPackageName()==null || !CAR_PKG.contentEquals(e.getPackageName()))return;
+    handler.removeCallbacks(refreshOnce);
+    if(e.getEventType()==AccessibilityEvent.TYPE_VIEW_SCROLLED){
+      clearOverlayAsync();
+      handler.postDelayed(refreshOnce,70);
+    }else{
+      handler.postDelayed(refreshOnce,90);
     }
   }
 
@@ -47,6 +51,12 @@ public class TaishanAccessibilityService extends AccessibilityService {
   }
 
   private final Runnable refreshOnce=this::refreshNow;
+
+  private void clearOverlayAsync(){
+    new Thread(()->{
+      if(sendItems(Collections.emptyList())) lastSentSignature="";
+    },"TaishanRU-clear").start();
+  }
 
   private AccessibilityNodeInfo findCarRoot(){
     try{
