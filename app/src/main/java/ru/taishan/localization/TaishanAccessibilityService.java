@@ -4,32 +4,61 @@ import android.accessibilityservice.AccessibilityService;
 import android.graphics.*;
 import android.os.*;
 import android.text.TextUtils;
+import android.util.Log;
 import android.view.*;
 import android.view.accessibility.*;
 import java.util.*;
 
 public class TaishanAccessibilityService extends AccessibilityService {
+  private static final String TAG="TaishanRU";
   private final Handler handler=new Handler(Looper.getMainLooper());
-  private WindowManager wm; private OverlayView overlay;
+  private WindowManager wm; private OverlayView overlay; private boolean overlayAdded=false;
   private final Map<String,String> dict=new HashMap<>();
 
   @Override protected void onServiceConnected(){
-    wm=(WindowManager)getSystemService(WINDOW_SERVICE); seed();
-    overlay=new OverlayView();
-    WindowManager.LayoutParams p=new WindowManager.LayoutParams(
-      -1,-1,WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE|WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE|
-      WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN|WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-      PixelFormat.TRANSLUCENT);
-    p.gravity=Gravity.TOP|Gravity.START; wm.addView(overlay,p);
+    super.onServiceConnected();
+    seed();
+    Log.i(TAG,"service connected user="+UserHandle.myUserId());
   }
   @Override public void onAccessibilityEvent(AccessibilityEvent e){
     if(e==null||e.getPackageName()==null||!"com.huawei.hwcarcontrol".contentEquals(e.getPackageName()))return;
-    handler.removeCallbacks(refresh); handler.postDelayed(refresh,60);
+    Log.i(TAG,"event type="+e.getEventType()+" pkg="+e.getPackageName());
+    handler.removeCallbacks(refresh); handler.postDelayed(refresh,80);
   }
-  @Override public void onInterrupt(){}
-  @Override public void onDestroy(){if(wm!=null&&overlay!=null)try{wm.removeView(overlay);}catch(Throwable ignored){} super.onDestroy();}
-  private final Runnable refresh=()->{AccessibilityNodeInfo r=getRootInActiveWindow();List<Item>x=new ArrayList<>();if(r!=null)collect(r,x);if(overlay!=null)overlay.setItems(x);};
+  @Override public void onInterrupt(){Log.w(TAG,"service interrupted");}
+  @Override public void onDestroy(){
+    handler.removeCallbacksAndMessages(null);
+    if(wm!=null&&overlay!=null&&overlayAdded)try{wm.removeView(overlay);}catch(Throwable t){Log.e(TAG,"remove overlay failed",t);}
+    overlayAdded=false; super.onDestroy();
+  }
+  private boolean ensureOverlay(){
+    if(overlayAdded)return true;
+    try{
+      if(wm==null)wm=(WindowManager)getSystemService(WINDOW_SERVICE);
+      if(overlay==null)overlay=new OverlayView();
+      WindowManager.LayoutParams p=new WindowManager.LayoutParams(
+        -1,-1,WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE|WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE|
+        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN|WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+        PixelFormat.TRANSLUCENT);
+      p.gravity=Gravity.TOP|Gravity.START;
+      wm.addView(overlay,p); overlayAdded=true;
+      Log.i(TAG,"overlay added display="+getDisplay());
+      return true;
+    }catch(Throwable t){Log.e(TAG,"add overlay failed",t);return false;}
+  }
+  private final Runnable refresh=()->{
+    try{
+      AccessibilityNodeInfo r=getRootInActiveWindow();
+      if(r==null){Log.w(TAG,"root is null");return;}
+      CharSequence pkg=r.getPackageName();
+      Log.i(TAG,"root pkg="+pkg);
+      if(pkg==null||!"com.huawei.hwcarcontrol".contentEquals(pkg)){r.recycle();return;}
+      List<Item>x=new ArrayList<>(); collect(r,x); r.recycle();
+      Log.i(TAG,"matches="+x.size());
+      if(!x.isEmpty()&&ensureOverlay()&&overlay!=null)overlay.setItems(x);
+    }catch(Throwable t){Log.e(TAG,"refresh failed",t);}
+  };
   private void collect(AccessibilityNodeInfo n,List<Item>o){
     if(n==null)return; CharSequence cs=n.getText();
     if(!TextUtils.isEmpty(cs)){String ru=dict.get(cs.toString().trim());if(ru!=null){Rect r=new Rect();n.getBoundsInScreen(r);if(r.width()>8&&r.height()>8)o.add(new Item(r,ru));}}
