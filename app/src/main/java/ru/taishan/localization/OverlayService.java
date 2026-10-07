@@ -114,6 +114,8 @@ public class OverlayService extends Service {
         WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
         PixelFormat.TRANSLUCENT);
       p.gravity=Gravity.TOP|Gravity.START;
+      p.alpha=0.79f;
+      p.setTitle("TaishanRU");
       wm.addView(overlay,p);
       overlayAdded=true;
       return true;
@@ -146,9 +148,10 @@ public class OverlayService extends Service {
     OverlayView(Context c){
       super(c);
       setWillNotDraw(false);
-      bg.setColor(Color.rgb(24,24,24));
+      bg.setColor(Color.argb(232,24,24,24));
       fg.setColor(Color.WHITE);
       fg.setTextAlign(Paint.Align.CENTER);
+      fg.setFakeBoldText(true);
     }
 
     void setItems(List<Item> x){
@@ -161,13 +164,17 @@ public class OverlayService extends Service {
       for(Item i:items){
         Rect r=i.r;
         if(r.right<=0||r.bottom<=0||r.left>=getWidth()||r.top>=getHeight())continue;
-        c.drawRoundRect(r.left,r.top,r.right,r.bottom,8,8,bg);
-        float size=Math.max(12f,r.height()*.48f);
+        float size=Math.max(18f,Math.min(42f,r.height()*.46f));
         fg.setTextSize(size);
-        while(fg.measureText(i.text)>r.width()*.92f&&size>10f){
+        while(fg.measureText(i.text)>r.width()*.90f&&size>14f){
           size-=1f;
           fg.setTextSize(size);
         }
+        float textW=fg.measureText(i.text);
+        float padX=10f;
+        float left=Math.max(r.left,r.centerX()-textW/2f-padX);
+        float right=Math.min(r.right,r.centerX()+textW/2f+padX);
+        c.drawRoundRect(left,r.top,right,r.bottom,10,10,bg);
         Paint.FontMetrics fm=fg.getFontMetrics();
         c.drawText(i.text,r.centerX(),r.centerY()-(fm.ascent+fm.descent)/2f,fg);
       }
