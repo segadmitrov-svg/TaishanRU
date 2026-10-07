@@ -11,36 +11,36 @@ import java.net.*;
 import java.util.*;
 
 public class OverlayService extends Service {
-  private static final int PORT=28765;
+  private static final int PORT=28765, MAX_WINDOWS=24;
   private static final String CHANNEL="taishan_ru_overlay";
   private static final int NOTIFY_ID=2203;
+
   private final Handler main=new Handler(Looper.getMainLooper());
+  private final List<View> views=new ArrayList<>();
   private volatile boolean running;
   private ServerSocket server;
   private Thread serverThread;
   private WindowManager wm;
-  private OverlayView overlay;
-  private boolean overlayAdded;
 
   @Override public void onCreate(){
     super.onCreate();
     startForegroundNow();
+    wm=(WindowManager)getSystemService(WINDOW_SERVICE);
     running=true;
     startServer();
   }
 
-  @Override public int onStartCommand(Intent intent,int flags,int startId){
+  @Override public int onStartCommand(Intent i,int f,int id){
     if(!running){running=true;startServer();}
     return START_STICKY;
   }
 
-  @Override public IBinder onBind(Intent intent){return null;}
+  @Override public IBinder onBind(Intent i){return null;}
 
   @Override public void onDestroy(){
     running=false;
     try{if(server!=null)server.close();}catch(Throwable ignored){}
-    if(serverThread!=null)serverThread.interrupt();
-    removeOverlay();
+    clearWindows();
     super.onDestroy();
   }
 
@@ -48,17 +48,12 @@ public class OverlayService extends Service {
     NotificationManager nm=(NotificationManager)getSystemService(NOTIFICATION_SERVICE);
     if(Build.VERSION.SDK_INT>=26){
       NotificationChannel ch=new NotificationChannel(CHANNEL,"TaishanRU",NotificationManager.IMPORTANCE_MIN);
-      ch.setDescription("Русская локализация меню автомобиля");
       ch.setShowBadge(false);
       nm.createNotificationChannel(ch);
     }
     Notification.Builder b=Build.VERSION.SDK_INT>=26?new Notification.Builder(this,CHANNEL):new Notification.Builder(this);
-    b.setContentTitle("TaishanRU")
-     .setContentText("Перевод меню активен")
-     .setSmallIcon(android.R.drawable.ic_menu_info_details)
-     .setOngoing(true)
-     .setCategory(Notification.CATEGORY_SERVICE)
-     .setShowWhen(false);
+    b.setContentTitle("TaishanRU").setContentText("Перевод меню активен")
+      .setSmallIcon(android.R.drawable.ic_menu_info_details).setOngoing(true).setShowWhen(false);
     startForeground(NOTIFY_ID,b.build());
   }
 
@@ -73,16 +68,14 @@ public class OverlayService extends Service {
             DataInputStream in=new DataInputStream(new BufferedInputStream(s.getInputStream()));
             int count=in.readInt();
             if(count<0||count>500)continue;
-            List<Item> items=new ArrayList<>(count);
-            for(int i=0;i<count;i++){
+            List<Item> items=new ArrayList<>();
+            for(int n=0;n<count;n++){
               int l=in.readInt(),t=in.readInt(),r=in.readInt(),b=in.readInt();
               String text=in.readUTF();
-              items.add(new Item(new Rect(l,t,r,b),text));
+              if(items.size()<MAX_WINDOWS)items.add(new Item(new Rect(l,t,r,b),text));
             }
             main.post(()->showItems(items));
-          }catch(Throwable ignored){
-            if(!running)break;
-          }
+          }catch(Throwable ignored){if(!running)break;}
         }
       }catch(Throwable ignored){}
     },"TaishanRU-overlay-server");
@@ -90,97 +83,64 @@ public class OverlayService extends Service {
   }
 
   private void showItems(List<Item> items){
-    if(items==null||items.isEmpty()){
-      if(overlayAdded&&overlay!=null)overlay.setItems(Collections.emptyList());
-      return;
-    }
     if(!Settings.canDrawOverlays(this))return;
-    if(!ensureOverlay())return;
-    overlay.setItems(items);
+    clearWindows();
+    if(items==null)return;
+    for(Item i:items)addWindow(i);
   }
 
-  private boolean ensureOverlay(){
-    if(overlayAdded)return true;
-    try{
-      wm=(WindowManager)getSystemService(WINDOW_SERVICE);
-      overlay=new OverlayView(this);
-      WindowManager.LayoutParams p=new WindowManager.LayoutParams(
-        WindowManager.LayoutParams.MATCH_PARENT,
-        WindowManager.LayoutParams.MATCH_PARENT,
-        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
-        WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE |
-        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN |
-        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-        PixelFormat.TRANSLUCENT);
-      p.gravity=Gravity.TOP|Gravity.START;
-      p.alpha=1.0f;
-      p.setTitle("TaishanRU");
-      wm.addView(overlay,p);
-      overlayAdded=true;
-      return true;
-    }catch(Throwable ignored){
-      removeOverlay();
-      return false;
-    }
+  private void addWindow(Item i){
+    if(wm==null||i.r.width()<24||i.r.height()<16)return;
+    int ex=Math.min(24,Math.max(6,i.r.height()/4));
+    int ey=Math.min(6,Math.max(2,i.r.height()/12));
+    int w=i.r.width()+ex*2, h=i.r.height()+ey*2;
+    int x=Math.max(0,i.r.left-ex), y=Math.max(0,i.r.top-ey);
+
+    LabelView v=new LabelView(this,i.text,i.r.height());
+    WindowManager.LayoutParams p=new WindowManager.LayoutParams(
+      w,h,WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+      WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE|
+      WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE|
+      WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN|
+      WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+      PixelFormat.TRANSLUCENT);
+    p.gravity=Gravity.TOP|Gravity.START;
+    p.x=x;p.y=y;p.alpha=1f;p.setTitle("TaishanRU-item");
+    try{wm.addView(v,p);views.add(v);}catch(Throwable ignored){}
   }
 
-  private void removeOverlay(){
-    if(wm!=null&&overlay!=null&&overlayAdded){
-      try{wm.removeView(overlay);}catch(Throwable ignored){}
+  private void clearWindows(){
+    if(wm!=null){
+      for(View v:new ArrayList<>(views)){
+        try{wm.removeViewImmediate(v);}catch(Throwable ignored){}
+      }
     }
-    overlayAdded=false;
-    overlay=null;
-    wm=null;
+    views.clear();
   }
 
   static class Item{
-    final Rect r;
-    final String text;
+    final Rect r; final String text;
     Item(Rect r,String text){this.r=new Rect(r);this.text=text;}
   }
 
-  static class OverlayView extends View{
-    private final Paint bg=new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint fg=new Paint(Paint.ANTI_ALIAS_FLAG);
-    private List<Item> items=new ArrayList<>();
-
-    OverlayView(Context c){
-      super(c);
-      setWillNotDraw(false);
-      bg.setColor(Color.argb(246,24,24,24));
-      fg.setColor(Color.WHITE);
-      fg.setTextAlign(Paint.Align.CENTER);
-      fg.setFakeBoldText(true);
+  static class LabelView extends View{
+    final Paint bg=new Paint(Paint.ANTI_ALIAS_FLAG), fg=new Paint(Paint.ANTI_ALIAS_FLAG);
+    final String text; final int sourceHeight;
+    LabelView(Context c,String t,int h){
+      super(c);text=t;sourceHeight=h;setWillNotDraw(false);
+      bg.setColor(Color.rgb(24,24,24));fg.setColor(Color.WHITE);
+      fg.setTextAlign(Paint.Align.LEFT);
+      fg.setTypeface(Typeface.create("sans-serif",Typeface.NORMAL));
     }
-
-    void setItems(List<Item> x){
-      items=new ArrayList<>(x);
-      invalidate();
-    }
-
     @Override protected void onDraw(Canvas c){
       super.onDraw(c);
-      for(Item i:items){
-        Rect r=i.r;
-        if(r.right<=0||r.bottom<=0||r.left>=getWidth()||r.top>=getHeight())continue;
-        float size=Math.max(20f,Math.min(44f,r.height()*.72f));
-        fg.setTextSize(size);
-        while(fg.measureText(i.text)>r.width()*.96f&&size>16f){
-          size-=1f;
-          fg.setTextSize(size);
-        }
-        float padX=Math.max(4f,size*.14f);
-        float padY=Math.max(2f,size*.08f);
-        float left=Math.max(0,r.left-padX);
-        float right=Math.min(getWidth(),r.right+padX);
-        float top=Math.max(0,r.top-padY);
-        float bottom=Math.min(getHeight(),r.bottom+padY);
-        c.drawRect(left,top,right,bottom,bg);
-        Paint.FontMetrics fm=fg.getFontMetrics();
-        float baseline=r.centerY()-(fm.ascent+fm.descent)/2f;
-        c.drawText(i.text,r.left,baseline,fg);
-      }
+      c.drawRect(0,0,getWidth(),getHeight(),bg);
+      float s=Math.max(18f,Math.min(36f,sourceHeight*.54f));
+      fg.setTextSize(s);
+      while(fg.measureText(text)>getWidth()-16f&&s>14f){s-=1f;fg.setTextSize(s);}
+      Paint.FontMetrics fm=fg.getFontMetrics();
+      float base=getHeight()/2f-(fm.ascent+fm.descent)/2f;
+      c.drawText(text,8f,base,fg);
     }
   }
 }
