@@ -9,6 +9,9 @@ android {
     versionCode 1
     versionName '0.1.0'
   }
+  lint {
+    disable 'ExpiredTargetSdkVersion'
+  }
   buildTypes {
     release {
       minifyEnabled false
