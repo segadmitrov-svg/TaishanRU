@@ -23,7 +23,7 @@ public class TaishanAccessibilityService extends AccessibilityService {
   private final Runnable poll=new Runnable(){
     @Override public void run(){
       refreshNow();
-      handler.postDelayed(this,500);
+      handler.postDelayed(this,800);
     }
   };
 
@@ -38,12 +38,10 @@ public class TaishanAccessibilityService extends AccessibilityService {
     if(e==null || e.getPackageName()==null || !CAR_PKG.contentEquals(e.getPackageName()))return;
     handler.removeCallbacks(refreshOnce);
     if(e.getEventType()==AccessibilityEvent.TYPE_VIEW_SCROLLED){
-      int dy=0;
-      try{dy=e.getScrollDeltaY();}catch(Throwable ignored){}
-      if(dy!=0)sendScrollDeltaAsync(dy);
-      handler.postDelayed(refreshOnce,35);
+      hideOverlayAsync();
+      handler.postDelayed(refreshOnce,140);
     }else{
-      handler.postDelayed(refreshOnce,70);
+      handler.postDelayed(refreshOnce,80);
     }
   }
 
@@ -57,16 +55,15 @@ public class TaishanAccessibilityService extends AccessibilityService {
 
   private final Runnable refreshOnce=this::refreshNow;
 
-  private void sendScrollDeltaAsync(int dy){
-    io.execute(()->sendScrollDelta(dy));
+  private void hideOverlayAsync(){
+    io.execute(this::sendHideOverlay);
   }
 
-  private boolean sendScrollDelta(int dy){
+  private boolean sendHideOverlay(){
     try(Socket s=new Socket()){
       s.connect(new InetSocketAddress("127.0.0.1",PORT),120);
       DataOutputStream out=new DataOutputStream(new BufferedOutputStream(s.getOutputStream()));
-      out.writeInt(-1);
-      out.writeInt(dy);
+      out.writeInt(-2);
       out.flush();
       return true;
     }catch(Throwable ignored){
