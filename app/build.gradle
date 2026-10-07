@@ -6,8 +6,8 @@ android {
     applicationId 'ru.taishan.localization'
     minSdk 29
     targetSdk 31
-    versionCode 11
-    versionName '0.4.2'
+    versionCode 12
+    versionName '0.4.3'
   }
   lint {
     disable 'ExpiredTargetSdkVersion'
