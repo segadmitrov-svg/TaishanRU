@@ -18,7 +18,7 @@ public class TaishanAccessibilityService extends AccessibilityService {
   @Override protected void onServiceConnected(){
     super.onServiceConnected();
     seed();
-    Log.i(TAG,"service connected user="+UserHandle.myUserId());
+    Log.i(TAG,"service connected");
   }
   @Override public void onAccessibilityEvent(AccessibilityEvent e){
     if(e==null||e.getPackageName()==null||!"com.huawei.hwcarcontrol".contentEquals(e.getPackageName()))return;
