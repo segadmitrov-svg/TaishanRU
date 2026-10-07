@@ -16,11 +16,12 @@ public class TaishanAccessibilityService extends AccessibilityService {
   private final Handler handler=new Handler(Looper.getMainLooper());
   private final Map<String,String> dict=new HashMap<>();
   private String lastSentSignature="";
+  private volatile boolean sendInFlight=false;
 
   private final Runnable poll=new Runnable(){
     @Override public void run(){
       refreshNow();
-      handler.postDelayed(this,450);
+      handler.postDelayed(this,2000);
     }
   };
 
@@ -34,7 +35,7 @@ public class TaishanAccessibilityService extends AccessibilityService {
   @Override public void onAccessibilityEvent(AccessibilityEvent e){
     if(e!=null && e.getPackageName()!=null && CAR_PKG.contentEquals(e.getPackageName())){
       handler.removeCallbacks(refreshOnce);
-      handler.postDelayed(refreshOnce,40);
+      handler.postDelayed(refreshOnce,180);
     }
   }
 
@@ -81,9 +82,14 @@ public class TaishanAccessibilityService extends AccessibilityService {
       List<Item> items=new ArrayList<>();
       if(root!=null)collect(root,items);
       final String sig=signature(items);
-      if(sig.equals(lastSentSignature))return;
+      if(sig.equals(lastSentSignature) || sendInFlight)return;
+      sendInFlight=true;
       new Thread(()->{
-        if(sendItems(items))lastSentSignature=sig;
+        try{
+          if(sendItems(items))lastSentSignature=sig;
+        }finally{
+          sendInFlight=false;
+        }
       },"TaishanRU-send").start();
     }catch(Throwable ignored){
     }finally{
@@ -126,7 +132,9 @@ public class TaishanAccessibilityService extends AccessibilityService {
       if(ru!=null && !ru.equals(src)){
         Rect r=new Rect();
         n.getBoundsInScreen(r);
-        if(r.width()>8 && r.height()>8)out.add(new Item(r,ru));
+        if(r.width()>24 && r.height()>16 && src.length()<=64 && ru.length()<=72 && out.size()<28){
+          out.add(new Item(r,ru));
+        }
       }
     }
     for(int i=0;i<n.getChildCount();i++){
