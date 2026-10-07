@@ -67,9 +67,8 @@ public class OverlayService extends Service {
           try(Socket s=server.accept()){
             DataInputStream in=new DataInputStream(new BufferedInputStream(s.getInputStream()));
             int count=in.readInt();
-            if(count==-1){
-              int dy=in.readInt();
-              main.post(()->shiftWindows(dy));
+            if(count==-2){
+              main.post(this::hideWindows);
               continue;
             }
             if(count<0||count>500)continue;
@@ -89,39 +88,64 @@ public class OverlayService extends Service {
 
   private void showItems(List<Item> items){
     if(!Settings.canDrawOverlays(this))return;
-    clearWindows();
-    if(items==null)return;
-    for(Item i:items)addWindow(i);
+    if(items==null)items=Collections.emptyList();
+
+    int index=0;
+    for(Item item:items){
+      if(item.r.width()<24||item.r.height()<16)continue;
+      Entry e;
+      if(index<entries.size()){
+        e=entries.get(index);
+        updateEntry(e,item);
+      }else{
+        e=createEntry(item);
+        if(e!=null)entries.add(e);
+      }
+      if(e!=null)e.v.setVisibility(View.VISIBLE);
+      index++;
+      if(index>=MAX_WINDOWS)break;
+    }
+    for(int i=index;i<entries.size();i++)entries.get(i).v.setVisibility(View.INVISIBLE);
   }
 
-  private void addWindow(Item i){
-    if(wm==null||i.r.width()<24||i.r.height()<16)return;
-    int ex=Math.min(24,Math.max(6,i.r.height()/4));
-    int ey=Math.min(6,Math.max(2,i.r.height()/12));
-    int w=i.r.width()+ex*2, h=i.r.height()+ey*2;
-    int x=Math.max(0,i.r.left-ex), y=Math.max(0,i.r.top-ey);
-
-    LabelView v=new LabelView(this,i.text,i.r.height());
+  private Entry createEntry(Item i){
+    if(wm==null)return null;
+    LabelView v=new LabelView(this);
     WindowManager.LayoutParams p=new WindowManager.LayoutParams(
-      w,h,WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+      32,24,WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
       WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE|
       WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE|
       WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN|
       WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
       PixelFormat.TRANSLUCENT);
     p.gravity=Gravity.TOP|Gravity.START;
-    p.x=x;p.y=y;p.alpha=1f;p.setTitle("TaishanRU-item");
-    try{wm.addView(v,p);entries.add(new Entry(v,p));}catch(Throwable ignored){}
+    p.alpha=1f;
+    p.setTitle("TaishanRU-item");
+    Entry e=new Entry(v,p);
+    updateEntry(e,i);
+    try{
+      wm.addView(v,p);
+      return e;
+    }catch(Throwable ignored){
+      return null;
+    }
   }
 
-  private void shiftWindows(int dy){
-    if(wm==null||dy==0)return;
-    for(Entry e:new ArrayList<>(entries)){
-      try{
-        e.p.y-=dy;
-        wm.updateViewLayout(e.v,e.p);
-      }catch(Throwable ignored){}
+  private void updateEntry(Entry e,Item i){
+    int ex=Math.min(24,Math.max(6,i.r.height()/4));
+    int ey=Math.min(6,Math.max(2,i.r.height()/12));
+    e.p.width=i.r.width()+ex*2;
+    e.p.height=i.r.height()+ey*2;
+    e.p.x=Math.max(0,i.r.left-ex);
+    e.p.y=Math.max(0,i.r.top-ey);
+    e.v.setContent(i.text,i.r.height());
+    if(e.v.isAttachedToWindow()){
+      try{wm.updateViewLayout(e.v,e.p);}catch(Throwable ignored){}
     }
+  }
+
+  private void hideWindows(){
+    for(Entry e:entries)e.v.setVisibility(View.INVISIBLE);
   }
 
   private void clearWindows(){
@@ -134,9 +158,9 @@ public class OverlayService extends Service {
   }
 
   static class Entry{
-    final View v;
+    final LabelView v;
     final WindowManager.LayoutParams p;
-    Entry(View v,WindowManager.LayoutParams p){this.v=v;this.p=p;}
+    Entry(LabelView v,WindowManager.LayoutParams p){this.v=v;this.p=p;}
   }
 
   static class Item{
@@ -146,13 +170,24 @@ public class OverlayService extends Service {
 
   static class LabelView extends View{
     final Paint bg=new Paint(Paint.ANTI_ALIAS_FLAG), fg=new Paint(Paint.ANTI_ALIAS_FLAG);
-    final String text; final int sourceHeight;
-    LabelView(Context c,String t,int h){
-      super(c);text=t;sourceHeight=h;setWillNotDraw(false);
-      bg.setColor(Color.rgb(24,24,24));fg.setColor(Color.WHITE);
+    String text="";
+    int sourceHeight=24;
+
+    LabelView(Context c){
+      super(c);
+      setWillNotDraw(false);
+      bg.setColor(Color.rgb(24,24,24));
+      fg.setColor(Color.WHITE);
       fg.setTextAlign(Paint.Align.LEFT);
       fg.setTypeface(Typeface.create("sans-serif",Typeface.NORMAL));
     }
+
+    void setContent(String t,int h){
+      text=t;
+      sourceHeight=h;
+      invalidate();
+    }
+
     @Override protected void onDraw(Canvas c){
       super.onDraw(c);
       c.drawRect(0,0,getWidth(),getHeight(),bg);
