@@ -2,6 +2,8 @@ package ru.taishan.localization;
 
 import android.accessibilityservice.AccessibilityService;
 import android.graphics.*;
+import android.content.Context;
+import android.hardware.display.DisplayManager;
 import android.os.*;
 import android.text.TextUtils;
 import android.view.*;
@@ -13,8 +15,11 @@ public class TaishanAccessibilityService extends AccessibilityService {
   private static final String CAR_PKG="com.huawei.hwcarcontrol";
   private final Handler handler=new Handler(Looper.getMainLooper());
   private WindowManager wm;
+  private Context windowContext;
   private OverlayView overlay;
   private boolean overlayAdded=false;
+  private int carDisplayId=Display.DEFAULT_DISPLAY;
+  private int overlayDisplayId=-1;
   private final Map<String,String> dict=new HashMap<>();
   private String lastSignature="";
 
@@ -58,7 +63,10 @@ public class TaishanAccessibilityService extends AccessibilityService {
           AccessibilityNodeInfo r=null;
           try{
             r=w.getRoot();
-            if(r!=null && r.getPackageName()!=null && CAR_PKG.contentEquals(r.getPackageName())) return r;
+            if(r!=null && r.getPackageName()!=null && CAR_PKG.contentEquals(r.getPackageName())){
+              try{carDisplayId=w.getDisplayId();}catch(Throwable ignored){}
+              return r;
+            }
           }catch(Throwable ignored){
           }finally{
             if(r!=null && (r.getPackageName()==null || !CAR_PKG.contentEquals(r.getPackageName()))) r.recycle();
@@ -107,10 +115,19 @@ public class TaishanAccessibilityService extends AccessibilityService {
   }
 
   private boolean ensureOverlay(){
-    if(overlayAdded)return true;
+    if(overlayAdded && overlayDisplayId==carDisplayId)return true;
+    if(overlayAdded)removeOverlay();
     try{
-      if(wm==null)wm=(WindowManager)getSystemService(WINDOW_SERVICE);
-      if(overlay==null)overlay=new OverlayView();
+      DisplayManager dm=(DisplayManager)getSystemService(DISPLAY_SERVICE);
+      Display d=dm!=null?dm.getDisplay(carDisplayId):null;
+      Context displayContext=d!=null?createDisplayContext(d):this;
+      if(Build.VERSION.SDK_INT>=30){
+        windowContext=displayContext.createWindowContext(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,null);
+      }else{
+        windowContext=displayContext;
+      }
+      wm=(WindowManager)windowContext.getSystemService(WINDOW_SERVICE);
+      overlay=new OverlayView(windowContext);
       WindowManager.LayoutParams p=new WindowManager.LayoutParams(
         WindowManager.LayoutParams.MATCH_PARENT,
         WindowManager.LayoutParams.MATCH_PARENT,
@@ -123,8 +140,10 @@ public class TaishanAccessibilityService extends AccessibilityService {
       p.gravity=Gravity.TOP|Gravity.START;
       wm.addView(overlay,p);
       overlayAdded=true;
+      overlayDisplayId=carDisplayId;
       return true;
     }catch(Throwable ignored){
+      removeOverlay();
       return false;
     }
   }
@@ -134,6 +153,10 @@ public class TaishanAccessibilityService extends AccessibilityService {
       try{wm.removeView(overlay);}catch(Throwable ignored){}
     }
     overlayAdded=false;
+    overlayDisplayId=-1;
+    overlay=null;
+    wm=null;
+    windowContext=null;
   }
 
   private void collect(AccessibilityNodeInfo n,List<Item> out){
@@ -257,8 +280,8 @@ public class TaishanAccessibilityService extends AccessibilityService {
     final Paint fg=new Paint(Paint.ANTI_ALIAS_FLAG);
     List<Item> items=new ArrayList<>();
 
-    OverlayView(){
-      super(TaishanAccessibilityService.this);
+    OverlayView(Context context){
+      super(context);
       setWillNotDraw(false);
       bg.setColor(Color.rgb(24,24,24));
       fg.setColor(Color.WHITE);
