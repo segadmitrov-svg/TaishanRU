@@ -114,7 +114,7 @@ public class OverlayService extends Service {
         WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
         PixelFormat.TRANSLUCENT);
       p.gravity=Gravity.TOP|Gravity.START;
-      p.alpha=0.79f;
+      p.alpha=1.0f;
       p.setTitle("TaishanRU");
       wm.addView(overlay,p);
       overlayAdded=true;
@@ -148,7 +148,7 @@ public class OverlayService extends Service {
     OverlayView(Context c){
       super(c);
       setWillNotDraw(false);
-      bg.setColor(Color.argb(232,24,24,24));
+      bg.setColor(Color.argb(246,24,24,24));
       fg.setColor(Color.WHITE);
       fg.setTextAlign(Paint.Align.CENTER);
       fg.setFakeBoldText(true);
@@ -164,19 +164,22 @@ public class OverlayService extends Service {
       for(Item i:items){
         Rect r=i.r;
         if(r.right<=0||r.bottom<=0||r.left>=getWidth()||r.top>=getHeight())continue;
-        float size=Math.max(18f,Math.min(42f,r.height()*.46f));
+        float size=Math.max(20f,Math.min(44f,r.height()*.72f));
         fg.setTextSize(size);
-        while(fg.measureText(i.text)>r.width()*.90f&&size>14f){
+        while(fg.measureText(i.text)>r.width()*.96f&&size>16f){
           size-=1f;
           fg.setTextSize(size);
         }
-        float textW=fg.measureText(i.text);
-        float padX=10f;
-        float left=Math.max(r.left,r.centerX()-textW/2f-padX);
-        float right=Math.min(r.right,r.centerX()+textW/2f+padX);
-        c.drawRoundRect(left,r.top,right,r.bottom,10,10,bg);
+        float padX=Math.max(4f,size*.14f);
+        float padY=Math.max(2f,size*.08f);
+        float left=Math.max(0,r.left-padX);
+        float right=Math.min(getWidth(),r.right+padX);
+        float top=Math.max(0,r.top-padY);
+        float bottom=Math.min(getHeight(),r.bottom+padY);
+        c.drawRect(left,top,right,bottom,bg);
         Paint.FontMetrics fm=fg.getFontMetrics();
-        c.drawText(i.text,r.centerX(),r.centerY()-(fm.ascent+fm.descent)/2f,fg);
+        float baseline=r.centerY()-(fm.ascent+fm.descent)/2f;
+        c.drawText(i.text,r.left,baseline,fg);
       }
     }
   }
