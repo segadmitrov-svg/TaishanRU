@@ -5,6 +5,7 @@ import android.graphics.*;
 import android.content.Context;
 import android.hardware.display.DisplayManager;
 import android.os.*;
+import android.provider.Settings;
 import android.text.TextUtils;
 import android.view.*;
 import android.view.accessibility.*;
@@ -115,6 +116,7 @@ public class TaishanAccessibilityService extends AccessibilityService {
   }
 
   private boolean ensureOverlay(){
+    if(!Settings.canDrawOverlays(this))return false;
     if(overlayAdded && overlayDisplayId==carDisplayId)return true;
     if(overlayAdded)removeOverlay();
     try{
@@ -122,7 +124,7 @@ public class TaishanAccessibilityService extends AccessibilityService {
       Display d=dm!=null?dm.getDisplay(carDisplayId):null;
       Context displayContext=d!=null?createDisplayContext(d):this;
       if(Build.VERSION.SDK_INT>=30){
-        windowContext=displayContext.createWindowContext(WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,null);
+        windowContext=displayContext.createWindowContext(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,null);
       }else{
         windowContext=displayContext;
       }
@@ -131,7 +133,7 @@ public class TaishanAccessibilityService extends AccessibilityService {
       WindowManager.LayoutParams p=new WindowManager.LayoutParams(
         WindowManager.LayoutParams.MATCH_PARENT,
         WindowManager.LayoutParams.MATCH_PARENT,
-        WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
         WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
         WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE |
         WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN |
