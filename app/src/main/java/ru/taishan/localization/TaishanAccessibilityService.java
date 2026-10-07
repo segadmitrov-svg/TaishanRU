@@ -9,6 +9,7 @@ import java.io.*;
 import java.net.*;
 import java.util.*;
 import java.util.regex.*;
+import java.util.concurrent.*;
 
 public class TaishanAccessibilityService extends AccessibilityService {
   private static final String CAR_PKG="com.huawei.hwcarcontrol";
@@ -17,11 +18,12 @@ public class TaishanAccessibilityService extends AccessibilityService {
   private final Map<String,String> dict=new HashMap<>();
   private String lastSentSignature="";
   private volatile boolean sendInFlight=false;
+  private final ExecutorService io=Executors.newSingleThreadExecutor();
 
   private final Runnable poll=new Runnable(){
     @Override public void run(){
       refreshNow();
-      handler.postDelayed(this,700);
+      handler.postDelayed(this,500);
     }
   };
 
@@ -36,10 +38,12 @@ public class TaishanAccessibilityService extends AccessibilityService {
     if(e==null || e.getPackageName()==null || !CAR_PKG.contentEquals(e.getPackageName()))return;
     handler.removeCallbacks(refreshOnce);
     if(e.getEventType()==AccessibilityEvent.TYPE_VIEW_SCROLLED){
-      clearOverlayAsync();
-      handler.postDelayed(refreshOnce,70);
+      int dy=0;
+      try{dy=e.getScrollDeltaY();}catch(Throwable ignored){}
+      if(dy!=0)sendScrollDeltaAsync(dy);
+      handler.postDelayed(refreshOnce,35);
     }else{
-      handler.postDelayed(refreshOnce,90);
+      handler.postDelayed(refreshOnce,70);
     }
   }
 
@@ -47,15 +51,27 @@ public class TaishanAccessibilityService extends AccessibilityService {
 
   @Override public void onDestroy(){
     handler.removeCallbacksAndMessages(null);
+    try{io.shutdownNow();}catch(Throwable ignored){}
     super.onDestroy();
   }
 
   private final Runnable refreshOnce=this::refreshNow;
 
-  private void clearOverlayAsync(){
-    new Thread(()->{
-      if(sendItems(Collections.emptyList())) lastSentSignature="";
-    },"TaishanRU-clear").start();
+  private void sendScrollDeltaAsync(int dy){
+    io.execute(()->sendScrollDelta(dy));
+  }
+
+  private boolean sendScrollDelta(int dy){
+    try(Socket s=new Socket()){
+      s.connect(new InetSocketAddress("127.0.0.1",PORT),120);
+      DataOutputStream out=new DataOutputStream(new BufferedOutputStream(s.getOutputStream()));
+      out.writeInt(-1);
+      out.writeInt(dy);
+      out.flush();
+      return true;
+    }catch(Throwable ignored){
+      return false;
+    }
   }
 
   private AccessibilityNodeInfo findCarRoot(){
@@ -94,13 +110,13 @@ public class TaishanAccessibilityService extends AccessibilityService {
       final String sig=signature(items);
       if(sig.equals(lastSentSignature) || sendInFlight)return;
       sendInFlight=true;
-      new Thread(()->{
+      io.execute(()->{
         try{
           if(sendItems(items))lastSentSignature=sig;
         }finally{
           sendInFlight=false;
         }
-      },"TaishanRU-send").start();
+      });
     }catch(Throwable ignored){
     }finally{
       if(root!=null)try{root.recycle();}catch(Throwable ignored){}
@@ -226,6 +242,57 @@ public class TaishanAccessibilityService extends AccessibilityService {
     p("Reset","Сброс");
     p("Confirm","Подтвердить");
     p("Cancel","Отмена");
+    p("Driver assistance","Помощь водителю");
+    p("Connections","Подключения");
+    p("Assistant","Ассистент");
+    p("Vehicle status","Состояние автомобиля");
+    p("System","Система");
+    p("Head-up display","Проекционный дисплей");
+    p("HUD","Проекционный дисплей");
+    p("Brightness","Яркость");
+    p("Theme","Тема");
+    p("Day mode","Дневной режим");
+    p("Night mode","Ночной режим");
+    p("Automatic","Автоматически");
+    p("Language","Язык");
+    p("Units","Единицы измерения");
+    p("Time","Время");
+    p("Date","Дата");
+    p("Bluetooth","Bluetooth");
+    p("Wi-Fi","Wi-Fi");
+    p("Hotspot","Точка доступа");
+    p("Mobile network","Мобильная сеть");
+    p("Navigation","Навигация");
+    p("Audio","Аудио");
+    p("Volume","Громкость");
+    p("Balance","Баланс");
+    p("Equalizer","Эквалайзер");
+    p("Ambient light","Атмосферная подсветка");
+    p("Lock","Блокировка");
+    p("Unlock","Разблокировать");
+    p("Child lock","Детский замок");
+    p("Auto lock","Автоблокировка");
+    p("Trunk","Багажник");
+    p("Tailgate","Дверь багажника");
+    p("Sunroof","Люк");
+    p("Wipers","Стеклоочистители");
+    p("Headlights","Фары");
+    p("Auto high beam","Автоматический дальний свет");
+    p("Lane keeping assist","Удержание в полосе");
+    p("Adaptive cruise control","Адаптивный круиз-контроль");
+    p("Collision warning","Предупреждение о столкновении");
+    p("Emergency braking","Экстренное торможение");
+    p("Blind spot monitoring","Контроль слепых зон");
+    p("Traffic sign recognition","Распознавание дорожных знаков");
+    p("Parking assist","Помощь при парковке");
+    p("Camera","Камера");
+    p("Tire pressure","Давление в шинах");
+    p("Service","Сервис");
+    p("Maintenance","Обслуживание");
+    p("Software update","Обновление ПО");
+    p("About","О системе");
+    p("Privacy","Конфиденциальность");
+    p("Restore factory settings","Сброс к заводским настройкам");
 
     p("Fuel detection mode","Режим проверки выбросов");
     p("Detect vehicle exhaust emission index during annual inspection.","Проверка показателей выхлопа при техосмотре.");
