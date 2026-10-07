@@ -16,7 +16,7 @@ public class OverlayService extends Service {
   private static final int NOTIFY_ID=2203;
 
   private final Handler main=new Handler(Looper.getMainLooper());
-  private final List<View> views=new ArrayList<>();
+  private final List<Entry> entries=new ArrayList<>();
   private volatile boolean running;
   private ServerSocket server;
   private Thread serverThread;
@@ -67,6 +67,11 @@ public class OverlayService extends Service {
           try(Socket s=server.accept()){
             DataInputStream in=new DataInputStream(new BufferedInputStream(s.getInputStream()));
             int count=in.readInt();
+            if(count==-1){
+              int dy=in.readInt();
+              main.post(()->shiftWindows(dy));
+              continue;
+            }
             if(count<0||count>500)continue;
             List<Item> items=new ArrayList<>();
             for(int n=0;n<count;n++){
@@ -106,16 +111,32 @@ public class OverlayService extends Service {
       PixelFormat.TRANSLUCENT);
     p.gravity=Gravity.TOP|Gravity.START;
     p.x=x;p.y=y;p.alpha=1f;p.setTitle("TaishanRU-item");
-    try{wm.addView(v,p);views.add(v);}catch(Throwable ignored){}
+    try{wm.addView(v,p);entries.add(new Entry(v,p));}catch(Throwable ignored){}
+  }
+
+  private void shiftWindows(int dy){
+    if(wm==null||dy==0)return;
+    for(Entry e:new ArrayList<>(entries)){
+      try{
+        e.p.y-=dy;
+        wm.updateViewLayout(e.v,e.p);
+      }catch(Throwable ignored){}
+    }
   }
 
   private void clearWindows(){
     if(wm!=null){
-      for(View v:new ArrayList<>(views)){
-        try{wm.removeViewImmediate(v);}catch(Throwable ignored){}
+      for(Entry e:new ArrayList<>(entries)){
+        try{wm.removeViewImmediate(e.v);}catch(Throwable ignored){}
       }
     }
-    views.clear();
+    entries.clear();
+  }
+
+  static class Entry{
+    final View v;
+    final WindowManager.LayoutParams p;
+    Entry(View v,WindowManager.LayoutParams p){this.v=v;this.p=p;}
   }
 
   static class Item{
