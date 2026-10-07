@@ -1,28 +1,21 @@
 package ru.taishan.localization;
 
 import android.accessibilityservice.AccessibilityService;
-import android.graphics.*;
-import android.content.Context;
-import android.hardware.display.DisplayManager;
+import android.graphics.Rect;
 import android.os.*;
-import android.provider.Settings;
 import android.text.TextUtils;
-import android.view.*;
 import android.view.accessibility.*;
+import java.io.*;
+import java.net.*;
 import java.util.*;
 import java.util.regex.*;
 
 public class TaishanAccessibilityService extends AccessibilityService {
   private static final String CAR_PKG="com.huawei.hwcarcontrol";
+  private static final int PORT=28765;
   private final Handler handler=new Handler(Looper.getMainLooper());
-  private WindowManager wm;
-  private Context windowContext;
-  private OverlayView overlay;
-  private boolean overlayAdded=false;
-  private int carDisplayId=Display.DEFAULT_DISPLAY;
-  private int overlayDisplayId=-1;
   private final Map<String,String> dict=new HashMap<>();
-  private String lastSignature="";
+  private String lastSentSignature="";
 
   private final Runnable poll=new Runnable(){
     @Override public void run(){
@@ -49,7 +42,6 @@ public class TaishanAccessibilityService extends AccessibilityService {
 
   @Override public void onDestroy(){
     handler.removeCallbacksAndMessages(null);
-    removeOverlay();
     super.onDestroy();
   }
 
@@ -64,13 +56,12 @@ public class TaishanAccessibilityService extends AccessibilityService {
           AccessibilityNodeInfo r=null;
           try{
             r=w.getRoot();
-            if(r!=null && r.getPackageName()!=null && CAR_PKG.contentEquals(r.getPackageName())){
-              try{carDisplayId=w.getDisplayId();}catch(Throwable ignored){}
-              return r;
-            }
+            if(r!=null && r.getPackageName()!=null && CAR_PKG.contentEquals(r.getPackageName())) return r;
           }catch(Throwable ignored){
           }finally{
-            if(r!=null && (r.getPackageName()==null || !CAR_PKG.contentEquals(r.getPackageName()))) r.recycle();
+            if(r!=null && (r.getPackageName()==null || !CAR_PKG.contentEquals(r.getPackageName()))){
+              try{r.recycle();}catch(Throwable ignored){}
+            }
           }
         }
       }
@@ -87,25 +78,36 @@ public class TaishanAccessibilityService extends AccessibilityService {
     AccessibilityNodeInfo root=null;
     try{
       root=findCarRoot();
-      if(root==null){
-        if(overlayAdded && overlay!=null)overlay.setItems(Collections.emptyList());
-        lastSignature="";
-        return;
-      }
       List<Item> items=new ArrayList<>();
-      collect(root,items);
-      String sig=signature(items);
-      if(!sig.equals(lastSignature)){
-        lastSignature=sig;
-        if(items.isEmpty()){
-          if(overlayAdded && overlay!=null)overlay.setItems(items);
-        }else if(ensureOverlay()){
-          overlay.setItems(items);
-        }
-      }
+      if(root!=null)collect(root,items);
+      final String sig=signature(items);
+      if(sig.equals(lastSentSignature))return;
+      new Thread(()->{
+        if(sendItems(items))lastSentSignature=sig;
+      },"TaishanRU-send").start();
     }catch(Throwable ignored){
     }finally{
       if(root!=null)try{root.recycle();}catch(Throwable ignored){}
+    }
+  }
+
+  private boolean sendItems(List<Item> items){
+    try(Socket s=new Socket()){
+      s.connect(new InetSocketAddress("127.0.0.1",PORT),180);
+      s.setSoTimeout(300);
+      DataOutputStream out=new DataOutputStream(new BufferedOutputStream(s.getOutputStream()));
+      out.writeInt(items.size());
+      for(Item i:items){
+        out.writeInt(i.r.left);
+        out.writeInt(i.r.top);
+        out.writeInt(i.r.right);
+        out.writeInt(i.r.bottom);
+        out.writeUTF(i.t);
+      }
+      out.flush();
+      return true;
+    }catch(Throwable ignored){
+      return false;
     }
   }
 
@@ -113,52 +115,6 @@ public class TaishanAccessibilityService extends AccessibilityService {
     StringBuilder b=new StringBuilder();
     for(Item i:items)b.append(i.r.flattenToString()).append('|').append(i.t).append(';');
     return b.toString();
-  }
-
-  private boolean ensureOverlay(){
-    if(!Settings.canDrawOverlays(this))return false;
-    if(overlayAdded && overlayDisplayId==carDisplayId)return true;
-    if(overlayAdded)removeOverlay();
-    try{
-      DisplayManager dm=(DisplayManager)getSystemService(DISPLAY_SERVICE);
-      Display d=dm!=null?dm.getDisplay(carDisplayId):null;
-      Context displayContext=d!=null?createDisplayContext(d):this;
-      if(Build.VERSION.SDK_INT>=30){
-        windowContext=displayContext.createWindowContext(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,null);
-      }else{
-        windowContext=displayContext;
-      }
-      wm=(WindowManager)windowContext.getSystemService(WINDOW_SERVICE);
-      overlay=new OverlayView(windowContext);
-      WindowManager.LayoutParams p=new WindowManager.LayoutParams(
-        WindowManager.LayoutParams.MATCH_PARENT,
-        WindowManager.LayoutParams.MATCH_PARENT,
-        WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE |
-        WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE |
-        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN |
-        WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-        PixelFormat.TRANSLUCENT);
-      p.gravity=Gravity.TOP|Gravity.START;
-      wm.addView(overlay,p);
-      overlayAdded=true;
-      overlayDisplayId=carDisplayId;
-      return true;
-    }catch(Throwable ignored){
-      removeOverlay();
-      return false;
-    }
-  }
-
-  private void removeOverlay(){
-    if(wm!=null && overlay!=null && overlayAdded){
-      try{wm.removeView(overlay);}catch(Throwable ignored){}
-    }
-    overlayAdded=false;
-    overlayDisplayId=-1;
-    overlay=null;
-    wm=null;
-    windowContext=null;
   }
 
   private void collect(AccessibilityNodeInfo n,List<Item> out){
@@ -275,38 +231,5 @@ public class TaishanAccessibilityService extends AccessibilityService {
     final Rect r;
     final String t;
     Item(Rect r,String t){this.r=new Rect(r);this.t=t;}
-  }
-
-  class OverlayView extends View{
-    final Paint bg=new Paint(Paint.ANTI_ALIAS_FLAG);
-    final Paint fg=new Paint(Paint.ANTI_ALIAS_FLAG);
-    List<Item> items=new ArrayList<>();
-
-    OverlayView(Context context){
-      super(context);
-      setWillNotDraw(false);
-      bg.setColor(Color.rgb(24,24,24));
-      fg.setColor(Color.WHITE);
-      fg.setTextAlign(Paint.Align.CENTER);
-    }
-
-    void setItems(List<Item> x){
-      items=new ArrayList<>(x);
-      invalidate();
-    }
-
-    @Override protected void onDraw(Canvas c){
-      super.onDraw(c);
-      for(Item i:items){
-        Rect r=i.r;
-        if(r.right<=0||r.bottom<=0||r.left>=getWidth()||r.top>=getHeight())continue;
-        c.drawRoundRect(r.left,r.top,r.right,r.bottom,8,8,bg);
-        float s=Math.max(12f,r.height()*.48f);
-        fg.setTextSize(s);
-        while(fg.measureText(i.t)>r.width()*.92f && s>10f){fg.setTextSize(--s);}
-        Paint.FontMetrics f=fg.getFontMetrics();
-        c.drawText(i.t,r.centerX(),r.centerY()-(f.ascent+f.descent)/2f,fg);
-      }
-    }
   }
 }
