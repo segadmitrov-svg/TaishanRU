@@ -1,0 +1,30 @@
+name: Android build tools check
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  verify-tools:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK Build Tools
+        run: |
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "SDK=$SDK" >> "$GITHUB_ENV"
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$SDK/cmdline-tools/latest/bin/sdkmanager" "build-tools;35.0.0"
+      - name: Verify apksigner and zipalign
+        run: |
+          set -euo pipefail
+          "$SDK/build-tools/35.0.0/apksigner" --version
+          "$SDK/build-tools/35.0.0/zipalign" -h 2>&1 | head -n 8 || true
+          test -x "$SDK/build-tools/35.0.0/apksigner"
+          test -x "$SDK/build-tools/35.0.0/zipalign"
+          echo "Android signing and alignment tools available"
+# No APKs, credentials, signing keys, or artifacts are uploaded by this workflow.
