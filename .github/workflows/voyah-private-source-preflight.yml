@@ -1,0 +1,36 @@
+name: Voyah APK private-source preflight
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Verify source transfer configuration
+        env:
+          APK_DOWNLOAD_URL: ${{ secrets.VOYAH_APK_DOWNLOAD_URL }}
+          APK_SHA256: ${{ secrets.VOYAH_APK_SHA256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$APK_DOWNLOAD_URL" ]]; then
+            echo "::error::Set VOYAH_APK_DOWNLOAD_URL to a short-lived authenticated HTTPS download URL. Google Drive view links are not direct download URLs."
+            exit 1
+          fi
+          if [[ ! "$APK_DOWNLOAD_URL" =~ ^https:// ]]; then
+            echo "::error::Only HTTPS source URLs are allowed"
+            exit 1
+          fi
+          if [[ ! "$APK_SHA256" =~ ^[a-fA-F0-9]{64}$ ]]; then
+            echo "::error::Set VOYAH_APK_SHA256 to the expected 64-digit SHA256 digest"
+            exit 1
+          fi
+          echo "::add-mask::$APK_DOWNLOAD_URL"
+          curl --fail --location --silent --show-error --retry 2 --max-time 600 \
+            --output "$RUNNER_TEMP/original.apk" "$APK_DOWNLOAD_URL"
+          printf '%s  %s\n' "$APK_SHA256" "$RUNNER_TEMP/original.apk" | sha256sum --check --status
+          unzip -tq "$RUNNER_TEMP/original.apk" >/dev/null
+          echo "Source APK checksum and ZIP integrity verified. No APK uploaded or published."
+          rm -f "$RUNNER_TEMP/original.apk"
+# This is a transfer preflight only. No modification, signing, or public artifacts.
